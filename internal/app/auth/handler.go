@@ -142,7 +142,7 @@ func (h *handler) VerifyEmail(c *gin.Context) {
 // @Accept json
 // @Produce json
 // @Param payload body dto.PayloadLogin true "Login payload"
-// @Success 200 {object} dto.LoginResponse "Login success"
+// @Success 200 {object} util.Response "Login success"
 // @Failure 400 {object} util.Response "Invalid password or failed login"
 // @Failure 422 {object} util.Response "Validation error"
 // @Router /auth/login [post]

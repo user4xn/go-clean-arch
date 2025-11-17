@@ -9,12 +9,13 @@ import (
 	"clean-arch/pkg/tracer"
 	"strings"
 
+	_ "clean-arch/docs"
+
 	"github.com/gin-gonic/gin"
 	swaggerFiles "github.com/swaggo/files"
 	ginSwagger "github.com/swaggo/gin-swagger"
 )
 
-// Here we define route function for user Handlers that accepts gin.Engine and factory parameters
 func NewHttp(g *gin.Engine, f *factory.Factory) {
 	logger, err := tracer.InitLogger(strings.ToLower(config.AppEnv()))
 	if err != nil {
