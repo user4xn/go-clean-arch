@@ -1,0 +1,35 @@
+<!DOCTYPE html>
+<html lang="id">
+
+<head>
+    <meta charset="UTF-8">
+    <meta http-equiv="X-UA-Compatible" content="IE=edge">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Document</title>
+</head>
+
+<body style="font-family: SansSerif,sans-serif; font-weight: 400; font-size: 14px; color: #333333;">
+    <div id="container" style="width: 100%; max-width: 600px; margin: 0 auto; background: #f8f8f8;">
+        <div id="header" style="position: relative;">
+            <img src="{{.AppUrl}}/assets/img/header.png" style="width: 100%;">
+        </div>
+        <div id="content" style="padding: 20px; text-align: left; background: #fff; margin: 25px; border-top-left-radius: 30px; border-top-right-radius: 30px; border-bottom-left-radius: 5px; border-bottom-right-radius: 5px;">
+            <h3 style="font-weight: 600; font-size: 20px;">Halo, {{.Name}}</h3>
+            <p style="font-size: 17px;">
+                Verifikasi Email Anda untuk Mengakses Aplikasi KKP Landingpage Management Sepenuhnya
+                <br><br>
+                Terima kasih telah membantu kami menjaga keamanan akun Anda! Klik tombol di bawah ini untuk menyelesaikan proses verifikasi alamat email Anda.
+            </p>
+            
+            <div id="btn" style="height: 30px; padding-top: 20px;">
+                <a href="{{.Url}}" target="_blank" style="background-color: #0068ff; padding: 15px 20px; color: #ffffff; font-weight: 700; text-decoration: none; border-radius: 6px; margin: 10px 0;">Verifikasi Email</a>
+            </div>
+        </div>
+        <div id="footer" style="padding: 5px; background: #fff; display: block; flex-direction: column; text-align: center;">
+            <h3 style="font-weight: 600; font-size: 15px;">Kementrian Kelautan Dan Perikanan Republik Indonesia</h3>
+            <span id="copyright" style="text-align: center; font-weight: 500;">&copy;&nbsp;Copyright 2024</span>
+        </div>
+    </div>
+</body>
+
+</html>

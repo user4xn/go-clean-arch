@@ -15,12 +15,12 @@ func TestApp(t *testing.T) {
 	assert.NotEmpty(t, config.AppSecretKey())
 }
 
-func TestMySQL(t *testing.T) {
+func TestMyDB(t *testing.T) {
 	config.LoadEnv("../../.env")
 
-	assert.NotEmpty(t, config.MysqlHost())
-	assert.NotEmpty(t, config.MysqlPort())
-	assert.NotEmpty(t, config.MysqlUser())
-	assert.NotEmpty(t, config.MysqlPass())
-	assert.NotEmpty(t, config.MysqlDBName())
+	assert.NotEmpty(t, config.DbHost())
+	assert.NotEmpty(t, config.DbPort())
+	assert.NotEmpty(t, config.DbUser())
+	assert.NotEmpty(t, config.DbPass())
+	assert.NotEmpty(t, config.DbName())
 }

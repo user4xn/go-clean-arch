@@ -8,9 +8,12 @@ import (
 
 // Define common table collumns
 type Common struct {
-	CreatedAt time.Time       `json:"created_at"`
-	UpdatedAt time.Time       `json:"updated_at"`
-	DeletedAt *gorm.DeletedAt `json:"deleted_at"`
+	CreatedAt time.Time `gorm:"column:created_at" json:"created_at"`
+	UpdatedAt time.Time `gorm:"column:updated_at" json:"updated_at"`
+}
+
+type CreatedOnly struct {
+	CreatedAt time.Time `gorm:"column:created_at" json:"created_at"`
 }
 
 // Create default data for created_at and updated_at

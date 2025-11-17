@@ -5,11 +5,14 @@ import (
 	"clean-arch/internal/factory"
 	"clean-arch/pkg/tracer"
 	"clean-arch/pkg/util"
-	"io"
+	"fmt"
 	"net/http"
+	"path/filepath"
 	"strconv"
+	"strings"
 
 	"github.com/gin-gonic/gin"
+	validation "github.com/go-ozzo/ozzo-validation/v4"
 )
 
 type handler struct {
@@ -23,101 +26,196 @@ func NewHandler(f *factory.Factory) *handler {
 }
 
 func (h *handler) FindAll(c *gin.Context) {
-	// Call the service to get the data
-	data, err := h.service.FindAll(c.Request.Context())
-	if err != nil {
-		response := util.APIResponse("Internal server error", http.StatusInternalServerError, "error", nil)
-		c.JSON(http.StatusInternalServerError, response)
-		return
-	}
-	response := util.APIResponse("Data user", http.StatusOK, "success", data)
-	tracer.Log(c, "info", "Get all user")
-	c.JSON(http.StatusOK, response)
-	return
-}
+	limit := c.DefaultQuery("limit", "10")
+	offset := c.DefaultQuery("offset", "0")
+	search := c.DefaultQuery("search", "")
 
-func (h *handler) CreateUser(c *gin.Context) {
-	var input dto.InsertUserRequest
-	err := c.ShouldBindJSON(&input)
+	limitInt, err := strconv.Atoi(limit)
 	if err != nil {
-		errorMessage := gin.H{"errors": "please fill data"}
-		if err != io.EOF {
-			errors := util.FormatValidationError(err)
-			errorMessage = gin.H{"errors": errors}
-		}
-		response := util.APIResponse("User created failed", http.StatusUnprocessableEntity, "error", errorMessage)
-		c.JSON(http.StatusUnprocessableEntity, response)
-		return
-
-	}
-	err = h.service.CreateUser(c.Request.Context(), input)
-	if err != nil {
-		response := util.APIResponse("User created failed", http.StatusInternalServerError, "error", nil)
-		c.JSON(http.StatusInternalServerError, response)
-		return
-	}
-	response := util.APIResponse("User create success", http.StatusOK, "success", nil)
-	c.JSON(http.StatusOK, response)
-	return
-}
-
-func (h *handler) GetUserByID(c *gin.Context) {
-	paramId := c.Param("ID")
-	userId, _ := strconv.Atoi(paramId)
-	user, err := h.service.GetById(c.Request.Context(), userId)
-	if err != nil {
-		response := util.APIResponse("Data Not Found", http.StatusInternalServerError, "error", nil)
+		response := util.APIResponse(fmt.Sprintf("Internal server error %s", err.Error()), http.StatusInternalServerError, "error", nil)
 		c.JSON(http.StatusInternalServerError, response)
 		return
 	}
 
-	if user.ID <= 0 {
-		response := util.APIResponse("Data Not Found", http.StatusBadRequest, "error", nil)
+	offsetInt, err := strconv.Atoi(offset)
+	if err != nil {
+		response := util.APIResponse(fmt.Sprintf("Internal server error %s", err.Error()), http.StatusInternalServerError, "error", nil)
+		c.JSON(http.StatusInternalServerError, response)
+		return
+	}
+
+	payload := dto.PayloadBasicTable{
+		Limit:  limitInt,
+		Offset: offsetInt,
+		Search: search,
+	}
+
+	res, err := h.service.FindAll(c, payload)
+	if err != nil {
+		response := util.APIResponse("Failed to get user list", http.StatusBadRequest, "error", err.Error())
 		c.JSON(http.StatusBadRequest, response)
 		return
 	}
 
-	response := util.APIResponse("Data User", http.StatusOK, "success", user)
+	response := util.APIResponse("Successfully get user list", http.StatusOK, "success", res)
+	tracer.Log(c, "info", "Get User List")
 	c.JSON(http.StatusOK, response)
-	return
 }
 
-func (h *handler) UpdateUser(c *gin.Context) {
-	var input dto.UpdateUserRequest
-	err := c.ShouldBindJSON(&input)
-	if err != nil {
-		errorMessage := gin.H{"errors": "please fill data"}
-		if err != io.EOF {
-			errors := util.FormatValidationError(err)
-			errorMessage = gin.H{"errors": errors}
+func (h *handler) Store(c *gin.Context) {
+	var req dto.PayloadUser
+	if err := c.ShouldBind(&req); err != nil {
+		response := util.APIResponse("Invalid request", http.StatusBadRequest, "error", err.Error())
+		c.JSON(http.StatusBadRequest, response)
+		return
+	}
+
+	if err := validation.ValidateStruct(&req); err != nil {
+		response := util.APIResponse("Validation failed", http.StatusBadRequest, "error", err)
+		c.JSON(http.StatusBadRequest, response)
+		return
+	}
+
+	var uploadedFile string
+
+	if req.File != nil {
+		fileExt := filepath.Ext(req.File.Filename)
+		allowedExt := []string{".jpg", ".png", ".jpeg", ".bmp"}
+		if !util.InArrayStr(allowedExt, fileExt) {
+			response := util.APIResponse(fmt.Sprintf("File ext not valid, allowed ext is %v", allowedExt), http.StatusUnprocessableEntity, "failed", nil)
+			c.JSON(http.StatusUnprocessableEntity, response)
+			return
 		}
-		response := util.APIResponse("User created failed", http.StatusUnprocessableEntity, "error", errorMessage)
-		c.JSON(http.StatusUnprocessableEntity, response)
-		return
 
+		if req.File.Size > (5 * 1024 * 1024) {
+			response := util.APIResponse("File size to large, max size allowed is 5Mb", http.StatusUnprocessableEntity, "failed", nil)
+			c.JSON(http.StatusUnprocessableEntity, response)
+			return
+		}
+
+		fileURL, err := util.SaveFile(req.File)
+		if err != nil {
+			response := util.APIResponse("Failed to upload file", http.StatusInternalServerError, "error", err.Error())
+			c.JSON(http.StatusInternalServerError, response)
+			return
+		}
+
+		appUrl := util.GetEnv("APP_URL", "http://localhost")
+		appPort := util.GetEnv("APP_PORT", "8080")
+
+		baseURL := fmt.Sprintf("%s:%s/", appUrl, appPort)
+		sanitizedLink := strings.Replace(fileURL, baseURL, "", 1)
+
+		uploadedFile = sanitizedLink
+		req.URL = fileURL
 	}
-	paramId := c.Param("ID")
-	userId, _ := strconv.Atoi(paramId)
-	user, err := h.service.GetById(c.Request.Context(), userId)
-	if err != nil {
-		response := util.APIResponse("Data Not Found", http.StatusInternalServerError, "error", nil)
-		c.JSON(http.StatusInternalServerError, response)
-		return
-	}
-	if len(user.Name) <= 0 {
-		response := util.APIResponse("Data Not Found", http.StatusInternalServerError, "error", nil)
+
+	if err := h.service.Store(c, req); err != nil {
+		if req.File != nil {
+			_ = util.DeleteFile(uploadedFile)
+		}
+		response := util.APIResponse("Failed to store user", http.StatusInternalServerError, "error", err.Error())
 		c.JSON(http.StatusInternalServerError, response)
 		return
 	}
 
-	err = h.service.UpdateUser(c.Request.Context(), input, userId)
-	if err != nil {
-		response := util.APIResponse("User update failed", http.StatusInternalServerError, "error", nil)
-		c.JSON(http.StatusInternalServerError, response)
-		return
-	}
-	response := util.APIResponse("User update success", http.StatusOK, "success", nil)
+	response := util.APIResponse("Successfully store user", http.StatusOK, "success", nil)
+	tracer.Log(c, "info", "Store User")
 	c.JSON(http.StatusOK, response)
-	return
+}
 
+func (h *handler) Update(c *gin.Context) {
+	id := c.Param("id")
+	intId, _ := strconv.Atoi(id)
+
+	var req dto.PayloadUpdateUser
+	if err := c.ShouldBind(&req); err != nil {
+		response := util.APIResponse("Invalid request", http.StatusBadRequest, "error", err.Error())
+		c.JSON(http.StatusBadRequest, response)
+		return
+	}
+
+	if err := validation.ValidateStruct(&req); err != nil {
+		response := util.APIResponse("Validation failed", http.StatusBadRequest, "error", err)
+		c.JSON(http.StatusBadRequest, response)
+		return
+	}
+
+	var uploadedFile string
+
+	if req.File != nil {
+		fileExt := filepath.Ext(req.File.Filename)
+		allowedExt := []string{".jpg", ".png", ".jpeg", ".bmp"}
+		if !util.InArrayStr(allowedExt, fileExt) {
+			response := util.APIResponse(fmt.Sprintf("File ext not valid, allowed ext is %v", allowedExt), http.StatusUnprocessableEntity, "failed", nil)
+			c.JSON(http.StatusUnprocessableEntity, response)
+			return
+		}
+
+		if req.File.Size > (5 * 1024 * 1024) {
+			response := util.APIResponse("File size to large, max size allowed is 5Mb", http.StatusUnprocessableEntity, "failed", nil)
+			c.JSON(http.StatusUnprocessableEntity, response)
+			return
+		}
+
+		fileURL, err := util.SaveFile(req.File)
+		if err != nil {
+			response := util.APIResponse("Failed to upload file", http.StatusInternalServerError, "error", err.Error())
+			c.JSON(http.StatusInternalServerError, response)
+			return
+		}
+
+		appUrl := util.GetEnv("APP_URL", "http://localhost")
+		appPort := util.GetEnv("APP_PORT", "8080")
+
+		baseURL := fmt.Sprintf("%s:%s/", appUrl, appPort)
+		sanitizedLink := strings.Replace(fileURL, baseURL, "", 1)
+
+		uploadedFile = sanitizedLink
+		req.URL = fileURL
+	}
+
+	if err := h.service.Update(c, intId, req); err != nil {
+		if req.File != nil {
+			_ = util.DeleteFile(uploadedFile)
+		}
+		response := util.APIResponse("Failed to update user", http.StatusInternalServerError, "error", err.Error())
+		c.JSON(http.StatusInternalServerError, response)
+		return
+	}
+
+	response := util.APIResponse("Successfully update user", http.StatusOK, "success", nil)
+	tracer.Log(c, "info", "Update User")
+	c.JSON(http.StatusOK, response)
+}
+
+func (h *handler) FindOne(c *gin.Context) {
+	id := c.Param("id")
+	intId, _ := strconv.Atoi(id)
+
+	res, err := h.service.FindOne(c, intId)
+	if err != nil {
+		response := util.APIResponse("Failed to get detail user", http.StatusInternalServerError, "error", err.Error())
+		c.JSON(http.StatusInternalServerError, response)
+		return
+	}
+
+	response := util.APIResponse("Successfully get detail user", http.StatusOK, "success", res)
+	tracer.Log(c, "info", "Update User")
+	c.JSON(http.StatusOK, response)
+}
+
+func (h *handler) Delete(c *gin.Context) {
+	id := c.Param("id")
+	intId, _ := strconv.Atoi(id)
+
+	if err := h.service.Delete(c, intId); err != nil {
+		response := util.APIResponse("Failed to delete user", http.StatusInternalServerError, "error", err.Error())
+		c.JSON(http.StatusInternalServerError, response)
+		return
+	}
+
+	response := util.APIResponse("Successfully delete user", http.StatusOK, "success", nil)
+	tracer.Log(c, "info", "Delete User")
+	c.JSON(http.StatusOK, response)
 }

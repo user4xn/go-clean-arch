@@ -8,14 +8,10 @@ import (
 
 // This function accepts gin.Routergroup to define a group route
 func (h *handler) Router(g *gin.RouterGroup) {
+	g.Use(middleware.Authenticate())
 	g.GET("", h.FindAll)
-	g.Use(middleware.ApiKeyAuth())
-	g.POST("/create", h.CreateUser)
-	g.GET("/:ID", h.GetUserByID)
-	g.PUT("/update/:ID", h.UpdateUser)
-}
-
-func (h *handler) InRouter(g *gin.RouterGroup) {
-	g.Use(middleware.AuthorizeSignature())
-	// define route here
+	g.POST("/store", h.Store)
+	g.GET("/:id/detail", h.FindOne)
+	g.PUT("/:id/update", h.Update)
+	g.DELETE("/:id/delete", h.Delete)
 }

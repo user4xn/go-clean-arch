@@ -1,8 +1,18 @@
+// @title Clean Arch API
+// @version 1.0
+// @description API for authentication & user service
+
+// @contact.name API Support
+// @contact.email support@example.com
+
+// @host localhost:8080
+// @BasePath /api/v1
 package main
 
 import (
 	"clean-arch/database"
 	"clean-arch/database/migration"
+	"clean-arch/database/seeder"
 	"clean-arch/internal/factory"
 	"clean-arch/internal/http"
 	"clean-arch/pkg/config"
@@ -21,6 +31,7 @@ func main() {
 
 	var (
 		m   string
+		s   string
 		i   bool
 		mmf string
 		gen string
@@ -33,6 +44,13 @@ func main() {
 		"m",
 		"",
 		`This flag is used for migration`,
+	)
+
+	flag.StringVar(
+		&s,
+		"s",
+		"none",
+		`This flag is used for seeder`,
 	)
 
 	flag.BoolVar(
@@ -76,6 +94,11 @@ func main() {
 		if err != nil {
 			fmt.Println(cases.Title(language.Indonesian).String(err.Error()))
 		}
+		return
+	}
+
+	if s == "seed" {
+		seeder.Seed()
 		return
 	}
 

@@ -8,10 +8,13 @@
     3. Migrate All Migration Files
         If the files already migrated it skips that file
         The command is -m=all
-    4. Create Migration File
+    4. Seed The Table
+        If migdated data already exist, will not continue
+        The command is -s=seed
+    5. Create Migration File
         The command is -mmf={migration file name}
         The file format is `yyyy-MM-dd_h:mm:ss_filename.sql`
         Use underscore for each word for the filename
-    5. Create all app file
+    6. Create all app file
         Using for create all app file (router, handler, service, repository)
         The command is -gen=all, then fill in the required data

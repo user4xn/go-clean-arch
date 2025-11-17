@@ -8,4 +8,14 @@ type (
 		Message string      `json:"message"`
 		Data    interface{} `json:"data"`
 	}
+
+	PayloadBasicTable struct {
+		Limit  int    `json:"limit"`
+		Offset int    `json:"offset"`
+		Search string `json:"search"`
+	}
+
+	ResponseTotalRow struct {
+		TotalRow int `json:"total_row"`
+	}
 )
