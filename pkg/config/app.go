@@ -17,3 +17,7 @@ func AppSecretKey() string {
 func AppApiKey() string {
 	return viper.GetString("APP_API_KEY")
 }
+
+func TwoFactor() bool {
+	return viper.GetBool("ENABLE_OTP")
+}

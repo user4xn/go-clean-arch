@@ -34,13 +34,18 @@ func SetCookie(c *gin.Context, opts CookieOptions) {
 
 func SetRefreshTokenCookie(c *gin.Context, token string, maxDays int) {
 	maxAge := 60 * 60 * 24 * maxDays
+	secure := false
+	JWTMode := GetEnv("JWT_MODE", "fallback")
+	if JWTMode == "release" {
+		secure = true
+	}
 
 	SetCookie(c, CookieOptions{
 		Name:     "refresh_token",
 		Value:    token,
 		Path:     "/api/v1/auth/refresh",
 		MaxAge:   maxAge,
-		Secure:   true,
+		Secure:   secure,
 		HttpOnly: true,
 		SameSite: http.SameSiteStrictMode,
 	})

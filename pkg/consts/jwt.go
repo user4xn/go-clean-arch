@@ -13,6 +13,6 @@ const (
 	TokenDurationRelease = time.Minute * 15
 	TokenDurationDev     = time.Minute * 60
 
-	RefreshTokenDurationRelease = 7
-	RefreshTokenDurationDev     = 30
+	RefreshTokenDayAgeRelease = 7
+	RefreshTokenDayAgeDev     = 30
 )

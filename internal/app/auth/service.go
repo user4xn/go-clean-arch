@@ -7,6 +7,7 @@ import (
 	"clean-arch/internal/factory"
 	"clean-arch/internal/model"
 	"clean-arch/internal/repository"
+	"clean-arch/pkg/config"
 	"clean-arch/pkg/consts"
 	"clean-arch/pkg/crypto"
 	"clean-arch/pkg/dbutil"
@@ -44,7 +45,7 @@ type Service interface {
 
 func NewService(f *factory.Factory) Service {
 	return &service{
-		TwoFactor:       true,
+		TwoFactor:       config.TwoFactor(),
 		UserRepository:  f.UserRepository,
 		OtpRepository:   f.OtpRepository,
 		RedisRepository: f.RedisRepository,
@@ -312,13 +313,13 @@ func (s *service) GenerateToken(secretKey []byte, userID string, email string) (
 		return "", nil, "", nil, err
 	}
 
-	refreshExp := time.Now().In(loc).Add(consts.RefreshTokenDurationDev)
+	refreshExp := time.Now().In(loc).Add(time.Hour * 24 * consts.RefreshTokenDayAgeDev)
 
 	if jwtMode == "release" {
 		nonUnixTime = time.Now().In(loc).Add(consts.TokenDurationRelease)
 		expiredTime = nonUnixTime.Unix()
 
-		refreshExp = time.Now().In(loc).Add(consts.RefreshTokenDurationRelease)
+		refreshExp = time.Now().In(loc).Add(time.Hour * 24 * consts.RefreshTokenDayAgeRelease)
 
 		token := jwt.NewWithClaims(jwt.SigningMethodHS256, jwt.MapClaims{
 			"user_id": userID,

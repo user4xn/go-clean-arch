@@ -19,9 +19,9 @@ func LoadEnv(path string) {
 
 func GetRefreshDuration() int {
 	jwtMode := util.GetEnv("JWT_MODE", "fallback")
-	refreshDuration := consts.RefreshTokenDurationDev
+	refreshDuration := consts.RefreshTokenDayAgeDev
 	if jwtMode == "release" {
-		refreshDuration = consts.RefreshTokenDurationRelease
+		refreshDuration = consts.RefreshTokenDayAgeRelease
 	}
 	return refreshDuration
 }

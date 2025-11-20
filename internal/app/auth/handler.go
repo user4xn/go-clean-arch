@@ -33,6 +33,8 @@ func (h *handler) Refresh(c *gin.Context) {
 		return
 	}
 
+	fmt.Printf("cookie found %s", refreshToken)
+
 	clientIP := c.ClientIP()
 
 	newTokens, newRefreshToken, err := h.service.Refresh(c, refreshToken, clientIP)
