@@ -14,7 +14,6 @@ import (
 	"strings"
 	"time"
 
-	"golang.org/x/crypto/bcrypt"
 	"gorm.io/gorm"
 )
 
@@ -41,7 +40,7 @@ func (s *service) Store(ctx context.Context, reqHandler dto.PayloadUser) error {
 
 	now := time.Now()
 
-	hashedPassword, err := bcrypt.GenerateFromPassword([]byte(reqHandler.Password), bcrypt.DefaultCost)
+	hashedPassword, err := util.HashPassword(reqHandler.Password)
 	if err != nil {
 		return err
 	}
@@ -180,12 +179,16 @@ func (s *service) Update(ctx context.Context, id int, reqHandler dto.PayloadUpda
 			return err
 		}
 
-		err = util.ComparePasswords(user.Password, reqHandler.LastPassword)
+		match, err := util.VerifyPassword(reqHandler.LastPassword, user.Password)
 		if err != nil {
-			return fmt.Errorf("last password does not match")
+			return err
 		}
 
-		hashedPassword, err := bcrypt.GenerateFromPassword([]byte(reqHandler.NewPassword), bcrypt.DefaultCost)
+		if !match {
+			return fmt.Errorf("last password not match")
+		}
+
+		hashedPassword, err := util.HashPassword(reqHandler.NewPassword)
 		if err != nil {
 			return err
 		}

@@ -19,7 +19,6 @@ import (
 
 	"github.com/go-playground/validator/v10"
 	"github.com/joho/godotenv"
-	"golang.org/x/crypto/bcrypt"
 )
 
 func GetEnv(key string, fallback string) string {
@@ -129,10 +128,6 @@ func IntSliceContains(slice []int, value int) bool {
 		}
 	}
 	return false
-}
-
-func ComparePasswords(hashedPassword, inputPassword string) error {
-	return bcrypt.CompareHashAndPassword([]byte(hashedPassword), []byte(inputPassword))
 }
 
 func InArrayStr(array []string, str string) bool {

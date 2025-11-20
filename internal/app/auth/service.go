@@ -542,7 +542,7 @@ func (s *service) LoginAttempt(ctx context.Context, reqHandler dto.PayloadLoginT
 		return res, nil, consts.UserNotFound
 	}
 
-	err = util.ComparePasswords(user.Password, reqHandler.Password)
+	_, err = util.VerifyPassword(reqHandler.Password, user.Password)
 	if err != nil {
 		return res, nil, consts.InvalidPassword
 	}

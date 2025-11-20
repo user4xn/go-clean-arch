@@ -3,10 +3,10 @@ package seeder
 import (
 	"clean-arch/database"
 	"clean-arch/internal/model"
+	"clean-arch/pkg/util"
 	"fmt"
 	"time"
 
-	"golang.org/x/crypto/bcrypt"
 	"gorm.io/gorm"
 )
 
@@ -32,8 +32,8 @@ func UserSeed(db *gorm.DB) error {
 	fmt.Println("executing user seed...")
 
 	now := time.Now()
-	passwordAdmin := []byte("demouser123")
-	hashedPasswordAdmin, err := bcrypt.GenerateFromPassword(passwordAdmin, bcrypt.DefaultCost)
+	passwordAdmin := "demouser123"
+	hashedPasswordAdmin, err := util.HashPassword(passwordAdmin)
 	if err != nil {
 		fmt.Println(err)
 		return err
