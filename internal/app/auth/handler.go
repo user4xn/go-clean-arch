@@ -3,6 +3,7 @@ package auth
 import (
 	"clean-arch/internal/dto"
 	"clean-arch/internal/factory"
+	"clean-arch/pkg/config"
 	"clean-arch/pkg/consts"
 	"clean-arch/pkg/util"
 	"fmt"
@@ -22,6 +23,29 @@ func NewHandler(f *factory.Factory) *handler {
 	return &handler{
 		service: NewService(f),
 	}
+}
+
+func (h *handler) Refresh(c *gin.Context) {
+	refreshToken, err := c.Cookie("refresh_token")
+	if err != nil || refreshToken == "" {
+		response := util.APIResponse("refresh token not found", http.StatusUnauthorized, "failed", nil)
+		c.JSON(http.StatusUnauthorized, response)
+		return
+	}
+
+	clientIP := c.ClientIP()
+
+	newTokens, newRefreshToken, err := h.service.Refresh(c, refreshToken, clientIP)
+	if err != nil {
+		response := util.APIResponse(fmt.Sprintf("refresh failed: %s", err.Error()), http.StatusBadRequest, "failed", nil)
+		c.JSON(http.StatusBadRequest, response)
+		return
+	}
+
+	util.SetRefreshTokenCookie(c, *newRefreshToken, config.GetRefreshDuration())
+
+	response := util.APIResponse("refresh success", http.StatusOK, "success", newTokens)
+	c.JSON(http.StatusOK, response)
 }
 
 func (h *handler) Logout(c *gin.Context) {
@@ -71,12 +95,14 @@ func (h *handler) VerifyOTP(c *gin.Context) {
 		UserAgent: c.GetHeader("User-Agent"),
 	}
 
-	res, err := h.service.VerifyOTP(c, bodyUpdate)
+	res, refreshToken, err := h.service.VerifyOTP(c, bodyUpdate)
 	if err != nil {
 		response := util.APIResponse(fmt.Sprintf("verify otp failed otp %s", err.Error()), http.StatusBadRequest, "failed", res)
 		c.JSON(http.StatusBadRequest, response)
 		return
 	}
+
+	util.SetRefreshTokenCookie(c, *refreshToken, config.GetRefreshDuration())
 
 	response := util.APIResponse("verify otp successfull", http.StatusOK, "success", res)
 	c.JSON(http.StatusOK, response)
@@ -181,7 +207,7 @@ func (h *handler) Login(c *gin.Context) {
 		UserAgent: c.GetHeader("User-Agent"),
 	}
 
-	data, err := h.service.LoginAttempt(c, bodyUpdate)
+	data, refreshToken, err := h.service.LoginAttempt(c, bodyUpdate)
 	if err == consts.UserNotFound {
 		response := util.APIResponse(fmt.Sprintf("%s", consts.UserNotFound), http.StatusBadRequest, "failed", nil)
 		c.JSON(http.StatusBadRequest, response)
@@ -223,6 +249,8 @@ func (h *handler) Login(c *gin.Context) {
 		c.JSON(http.StatusBadRequest, response)
 		return
 	}
+
+	util.SetRefreshTokenCookie(c, *refreshToken, config.GetRefreshDuration())
 
 	response := util.APIResponse("Success Login", http.StatusOK, "success", data)
 	c.JSON(http.StatusOK, response)

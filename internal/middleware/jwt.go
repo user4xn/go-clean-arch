@@ -3,6 +3,7 @@ package middleware
 import (
 	"clean-arch/internal/dto"
 	"clean-arch/internal/factory"
+	"clean-arch/pkg/dbutil"
 	"clean-arch/pkg/util"
 	"encoding/json"
 	"fmt"
@@ -42,7 +43,7 @@ func Authenticate() gin.HandlerFunc {
 		f := factory.NewFactory()
 		userId, _ := strconv.Atoi(claims["user_id"].(string))
 
-		_, err = f.UserRepository.FindSession(c, userId, bearerStr)
+		_, err = f.UserRepository.FindSession(c, bearerStr)
 		if err != nil {
 			response := util.APIResponse("Unauthorized", http.StatusUnauthorized, "failed", nil)
 			c.JSON(http.StatusUnauthorized, response)
@@ -62,7 +63,7 @@ func Authenticate() gin.HandlerFunc {
 
 		if err == redis.Nil {
 			var jwtSess dto.JwtSession
-			user, _ := f.UserRepository.FindOne(c, "*", "id = ?", userId)
+			user, _ := f.UserRepository.FindOne(c, "*", dbutil.Where("id = ?", userId))
 
 			jwtSess = dto.JwtSession{
 				ID:          user.ID,

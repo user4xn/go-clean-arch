@@ -79,6 +79,15 @@ func APIResponse(message string, code int, status string, data interface{}) Resp
 
 }
 
+func GenerateRefreshToken() (string, error) {
+	refreshToken := make([]byte, 32)
+	_, err := rand.Read(refreshToken)
+	if err != nil {
+		return "", err
+	}
+	return fmt.Sprintf("%x", refreshToken), nil
+}
+
 func CreateErrorLog(errMessage error) {
 	fileName := fmt.Sprintf("./storage/error_logs/error-%s.log", time.Now().Format("2006-01-02"))
 

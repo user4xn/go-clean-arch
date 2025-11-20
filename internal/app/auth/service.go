@@ -8,6 +8,8 @@ import (
 	"clean-arch/internal/model"
 	"clean-arch/internal/repository"
 	"clean-arch/pkg/consts"
+	"clean-arch/pkg/crypto"
+	"clean-arch/pkg/dbutil"
 	"clean-arch/pkg/helper"
 	"clean-arch/pkg/util"
 	"context"
@@ -32,10 +34,11 @@ type service struct {
 }
 
 type Service interface {
-	LoginAttempt(ctx context.Context, reqHandler dto.PayloadLoginTraced) (dto.ResponseJWT, error)
+	LoginAttempt(ctx context.Context, reqHandler dto.PayloadLoginTraced) (dto.ResponseJWT, *string, error)
 	VerifyEmail(ctx context.Context, base64String string) error
 	RequestOTP(ctx context.Context, reqHandler dto.PayloadOtp) (dto.ResponseRequestOtp, error)
-	VerifyOTP(ctx context.Context, reqHandler dto.PayloadVerifyOtpTraced) (any, error)
+	VerifyOTP(ctx context.Context, reqHandler dto.PayloadVerifyOtpTraced) (any, *string, error)
+	Refresh(ctx context.Context, refreshToken string, ip string) (dto.ResponseJWT, *string, error)
 	Logout(ctx context.Context, bearer string) error
 }
 
@@ -48,6 +51,70 @@ func NewService(f *factory.Factory) Service {
 		TitleOTP:        "Kode Verifikasi " + util.GetEnv("APP_NAME", "fallback"),
 		TitleVerify:     "Verifikasi Akun " + util.GetEnv("APP_NAME", "fallback"),
 	}
+}
+
+func (s *service) Refresh(ctx context.Context, refreshToken string, ip string) (dto.ResponseJWT, *string, error) {
+	var res dto.ResponseJWT
+
+	session, err := s.UserRepository.FindSession(ctx, crypto.EncodeSHA256(refreshToken))
+	if err != nil {
+		return res, nil, fmt.Errorf("error find session: %s", err.Error())
+	}
+
+	if session.ExpiresAt.Before(time.Now()) {
+		return res, nil, fmt.Errorf("session expired")
+	}
+
+	if session.IPAddress != ip {
+		return res, nil, fmt.Errorf("invalid refresh, ip address not match please re login")
+	}
+
+	user, err := s.UserRepository.FindOne(ctx, "id, email, name, profile_image_url, email_verified_at", dbutil.Where("id = ?", session.UserID))
+	if err != nil {
+		return res, nil, consts.UserNotFound
+	}
+
+	secretKey := []byte(util.GetEnv("APP_SECRET_KEY", "fallback"))
+	jwt, exp, refreshToken, refreshExp, err := s.GenerateToken(secretKey, strconv.Itoa(user.ID), user.Email)
+	if err != nil {
+		return res, nil, consts.ErrorGenerateJwt
+	}
+
+	if jwt == "" {
+		return res, nil, consts.EmptyGenerateJwt
+	}
+
+	session.RefreshTokenHash = crypto.EncodeSHA256(refreshToken)
+	session.ExpiresAt = *refreshExp
+
+	tx := database.BeginTx(ctx, factory.NewFactory().InitDB)
+	if err := tx.Error; err != nil {
+		return res, nil, err
+	}
+
+	err = s.UserRepository.UpdateSession(tx, session.ID, session)
+	if err != nil {
+		tx.Rollback()
+		return res, nil, consts.ErrorGenerateJwt
+	}
+
+	tx.Commit()
+
+	dataUser := dto.DataUserLogin{
+		ID:              user.ID,
+		Email:           user.Email,
+		Name:            user.Name,
+		EmailVerifiedAt: *user.EmailVerifiedAt,
+		ProfileImageURL: user.ProfileImageURL,
+	}
+
+	res = dto.ResponseJWT{
+		TokenJwt:  jwt,
+		ExpiredAt: exp.Format(consts.TimeFormatDateTime),
+		DataUser:  &dataUser,
+	}
+
+	return res, &refreshToken, nil
 }
 
 func (s *service) Logout(ctx context.Context, bearer string) error {
@@ -88,35 +155,35 @@ func (s *service) IncreaseAttempt(ctx context.Context, currentAttempt int, id in
 	return nil
 }
 
-func (s *service) VerifyOTP(ctx context.Context, reqHandler dto.PayloadVerifyOtpTraced) (any, error) {
+func (s *service) VerifyOTP(ctx context.Context, reqHandler dto.PayloadVerifyOtpTraced) (any, *string, error) {
 	var (
 		res     dto.ResponseJWT
 		resFail dto.ResponseFailVerifyOtp
 	)
 
 	now := time.Now()
-	user, err := s.UserRepository.FindOne(ctx, "id, email, name, password, profile_image_url, email_verified_at", "email = ?", reqHandler.Email)
+	user, err := s.UserRepository.FindOne(ctx, "id, email, name, password, profile_image_url, email_verified_at", dbutil.Where("email = ?", reqHandler.Email))
 	if err != nil {
-		return res, consts.UserNotFound
+		return res, nil, consts.UserNotFound
 	}
 
 	fetchOtp, err := s.OtpRepository.FindOne(ctx, true, "id, attempt, otp, expired_at", "user_id = ? AND expired_at > ?", user.ID, now)
 	if err != nil {
 		if err == gorm.ErrRecordNotFound {
-			return nil, fmt.Errorf("otp already expired, please request new one")
+			return res, nil, fmt.Errorf("otp already expired, please request new one")
 		}
 
-		return nil, err
+		return res, nil, err
 	}
 
 	if fetchOtp.Attempt == 5 {
-		return nil, fmt.Errorf("reached max verify attempt, please request a new one")
+		return res, nil, fmt.Errorf("reached max verify attempt, please request a new one")
 	}
 
 	if fetchOtp.OTP != reqHandler.OTP {
 		err = s.IncreaseAttempt(ctx, fetchOtp.Attempt, fetchOtp.ID)
 		if err != nil {
-			return res, fmt.Errorf("failed update attemps data otp %s", err.Error())
+			return res, nil, fmt.Errorf("failed update attemps data otp %s", err.Error())
 		}
 
 		left := 5 - (fetchOtp.Attempt + 1)
@@ -124,17 +191,17 @@ func (s *service) VerifyOTP(ctx context.Context, reqHandler dto.PayloadVerifyOtp
 			AttemptLeft: fmt.Sprint(left),
 		}
 
-		return resFail, consts.OtpNotValid
+		return resFail, nil, consts.OtpNotValid
 	}
 
 	secretKey := []byte(util.GetEnv("APP_SECRET_KEY", "fallback"))
-	jwt, exp, err := s.GenerateToken(secretKey, strconv.Itoa(user.ID), user.Email)
+	jwt, exp, refreshToken, refreshExp, err := s.GenerateToken(secretKey, strconv.Itoa(user.ID), user.Email)
 	if err != nil {
-		return res, consts.ErrorGenerateJwt
+		return res, nil, consts.ErrorGenerateJwt
 	}
 
 	if jwt == "" {
-		return res, consts.EmptyGenerateJwt
+		return res, nil, consts.EmptyGenerateJwt
 	}
 
 	dataUser := dto.DataUserLogin{
@@ -145,23 +212,22 @@ func (s *service) VerifyOTP(ctx context.Context, reqHandler dto.PayloadVerifyOtp
 		ProfileImageURL: user.ProfileImageURL,
 	}
 
-	sessionModel := model.UserSession{
-		UserID:    user.ID,
-		JWTToken:  jwt,
-		ExpiresAt: *exp,
-	}
-
 	tx := database.BeginTx(ctx, factory.NewFactory().InitDB)
 	if err := tx.Error; err != nil {
-		return res, err
+		return res, nil, err
+	}
+	sessionModel := model.UserSession{
+		UserID:           user.ID,
+		IPAddress:        reqHandler.IP,
+		RefreshTokenHash: crypto.EncodeSHA256(refreshToken),
+		ExpiresAt:        *refreshExp,
 	}
 
 	err = s.UserRepository.CreateSession(tx, sessionModel)
 	if err != nil {
 		tx.Rollback()
-		return res, consts.ErrorGenerateJwt
+		return res, nil, consts.ErrorGenerateJwt
 	}
-	tx.Commit()
 
 	insertModel := model.LoginLog{
 		UserID:    user.ID,
@@ -169,15 +235,10 @@ func (s *service) VerifyOTP(ctx context.Context, reqHandler dto.PayloadVerifyOtp
 		UserAgent: reqHandler.UserAgent,
 	}
 
-	tx = database.BeginTx(ctx, factory.NewFactory().InitDB)
-	if err := tx.Error; err != nil {
-		return res, err
-	}
-
 	err = s.UserRepository.StoreLoginLog(tx, insertModel)
 	if err != nil {
 		tx.Rollback()
-		return res, fmt.Errorf("error storing login logs %s", err.Error())
+		return res, nil, fmt.Errorf("error storing login logs %s", err.Error())
 	}
 	tx.Commit()
 
@@ -190,7 +251,7 @@ func (s *service) VerifyOTP(ctx context.Context, reqHandler dto.PayloadVerifyOtp
 		DataUser:  &dataUser,
 	}
 
-	return res, nil
+	return res, &refreshToken, nil
 }
 
 func (s *service) VerifyEmail(ctx context.Context, base64String string) error {
@@ -199,7 +260,7 @@ func (s *service) VerifyEmail(ctx context.Context, base64String string) error {
 		fmt.Println("Error:", err)
 		return consts.ErrorDecodeBase64
 	}
-	user, err := s.UserRepository.FindOne(ctx, "id, email_verified_at", "email = ?", emailDecode)
+	user, err := s.UserRepository.FindOne(ctx, "id, email_verified_at", dbutil.Where("email = ?", string(emailDecode)))
 	if err != nil {
 		return consts.NotFoundDataUser
 	}
@@ -236,19 +297,28 @@ func (s *service) VerifyEmail(ctx context.Context, base64String string) error {
 	return nil
 }
 
-func (s *service) GenerateToken(secretKey []byte, userID string, email string) (string, *time.Time, error) {
+func (s *service) GenerateToken(secretKey []byte, userID string, email string) (string, *time.Time, string, *time.Time, error) {
 	loc, err := time.LoadLocation("Asia/Jakarta")
 	if err != nil {
-		return "", nil, err
+		return "", nil, "", nil, err
 	}
 
 	jwtMode := util.GetEnv("JWT_MODE", "fallback")
 	nonUnixTime := time.Now().In(loc).Add(consts.TokenDurationDev)
 	expiredTime := nonUnixTime.Unix()
 
+	refreshToken, err := util.GenerateRefreshToken()
+	if err != nil {
+		return "", nil, "", nil, err
+	}
+
+	refreshExp := time.Now().In(loc).Add(consts.RefreshTokenDurationDev)
+
 	if jwtMode == "release" {
-		nonUnixTime := time.Now().In(loc).Add(consts.TokenDurationRelease)
-		expiredTime := nonUnixTime.Unix()
+		nonUnixTime = time.Now().In(loc).Add(consts.TokenDurationRelease)
+		expiredTime = nonUnixTime.Unix()
+
+		refreshExp = time.Now().In(loc).Add(consts.RefreshTokenDurationRelease)
 
 		token := jwt.NewWithClaims(jwt.SigningMethodHS256, jwt.MapClaims{
 			"user_id": userID,
@@ -258,10 +328,10 @@ func (s *service) GenerateToken(secretKey []byte, userID string, email string) (
 
 		tokenString, err := token.SignedString(secretKey)
 		if err != nil {
-			return "", nil, err
+			return "", nil, "", nil, err
 		}
 
-		return tokenString, &nonUnixTime, nil
+		return tokenString, &nonUnixTime, refreshToken, &refreshExp, nil
 	}
 
 	token := jwt.NewWithClaims(jwt.SigningMethodHS256, jwt.MapClaims{
@@ -272,10 +342,10 @@ func (s *service) GenerateToken(secretKey []byte, userID string, email string) (
 
 	tokenString, err := token.SignedString(secretKey)
 	if err != nil {
-		return "", nil, err
+		return "", nil, "", nil, err
 	}
 
-	return tokenString, &nonUnixTime, nil
+	return tokenString, &nonUnixTime, refreshToken, &refreshExp, nil
 }
 
 func (s *service) SendVerifyEmail(user model.User) error {
@@ -315,7 +385,7 @@ func (s *service) RequestOTP(ctx context.Context, reqHandler dto.PayloadOtp) (dt
 		res dto.ResponseRequestOtp
 	)
 
-	thisUser, err := s.UserRepository.FindOne(ctx, "id, email, name", "email = ?", reqHandler.Email)
+	thisUser, err := s.UserRepository.FindOne(ctx, "id, email, name", dbutil.Where("email = ?", reqHandler.Email))
 	if err != nil {
 		return res, consts.UserNotFound
 	}
@@ -449,7 +519,7 @@ func (s *service) SendOTPEmail(dataOtp dto.DataOtpEmail) error {
 func (s *service) Process2FA(ctx context.Context, body dto.PayloadLoginTraced, thisUser model.User) error {
 	now := time.Now()
 
-	loginLog, err := s.UserRepository.FindLoginLog(ctx, "ip_address = ? AND user_id = ? and DATE(created_at) = ?", body.IP, thisUser.ID, now.Format(consts.TimeFormatDate))
+	loginLog, err := s.UserRepository.FindLoginLog(ctx, dbutil.Where("ip_address = ? AND user_id = ? and DATE(created_at) = ?", body.IP, thisUser.ID, now.Format(consts.TimeFormatDate)))
 	if err != gorm.ErrRecordNotFound {
 		return err
 	}
@@ -461,42 +531,42 @@ func (s *service) Process2FA(ctx context.Context, body dto.PayloadLoginTraced, t
 	return consts.Required2FA
 }
 
-func (s *service) LoginAttempt(ctx context.Context, reqHandler dto.PayloadLoginTraced) (dto.ResponseJWT, error) {
+func (s *service) LoginAttempt(ctx context.Context, reqHandler dto.PayloadLoginTraced) (dto.ResponseJWT, *string, error) {
 	var (
 		res dto.ResponseJWT
 	)
 
-	user, err := s.UserRepository.FindOne(ctx, "id, email, name, profile_image_url, password, email_verified_at", "email = ?", reqHandler.Email)
+	user, err := s.UserRepository.FindOne(ctx, "id, email, name, profile_image_url, password, email_verified_at", dbutil.Where("email = ?", reqHandler.Email))
 	if err != nil {
-		return res, consts.UserNotFound
+		return res, nil, consts.UserNotFound
 	}
 
 	err = util.ComparePasswords(user.Password, reqHandler.Password)
 	if err != nil {
-		return res, consts.InvalidPassword
+		return res, nil, consts.InvalidPassword
 	}
 
 	if user.EmailVerifiedAt == nil {
 		go s.SendVerifyEmail(user)
 
-		return res, consts.UserNotVerifyEmail
+		return res, nil, consts.UserNotVerifyEmail
 	}
 
 	if s.TwoFactor {
 		err = s.Process2FA(ctx, reqHandler, user)
 		if err != nil {
-			return res, err
+			return res, nil, err
 		}
 	}
 
 	secretKey := []byte(util.GetEnv("APP_SECRET_KEY", "fallback"))
-	jwt, exp, err := s.GenerateToken(secretKey, strconv.Itoa(user.ID), user.Email)
+	jwt, exp, refreshToken, refreshExp, err := s.GenerateToken(secretKey, strconv.Itoa(user.ID), user.Email)
 	if err != nil {
-		return res, consts.ErrorGenerateJwt
+		return res, nil, consts.ErrorGenerateJwt
 	}
 
 	if jwt == "" {
-		return res, consts.EmptyGenerateJwt
+		return res, nil, consts.EmptyGenerateJwt
 	}
 
 	dataUser := dto.DataUserLogin{
@@ -507,23 +577,22 @@ func (s *service) LoginAttempt(ctx context.Context, reqHandler dto.PayloadLoginT
 		ProfileImageURL: user.ProfileImageURL,
 	}
 
-	sessionModel := model.UserSession{
-		UserID:    user.ID,
-		JWTToken:  jwt,
-		ExpiresAt: *exp,
-	}
-
 	tx := database.BeginTx(ctx, factory.NewFactory().InitDB)
 	if err := tx.Error; err != nil {
-		return res, err
+		return res, nil, err
+	}
+	sessionModel := model.UserSession{
+		UserID:           user.ID,
+		IPAddress:        reqHandler.IP,
+		RefreshTokenHash: crypto.EncodeSHA256(refreshToken),
+		ExpiresAt:        *refreshExp,
 	}
 
 	err = s.UserRepository.CreateSession(tx, sessionModel)
 	if err != nil {
 		tx.Rollback()
-		return res, consts.ErrorGenerateJwt
+		return res, nil, consts.ErrorGenerateJwt
 	}
-	tx.Commit()
 
 	insertModel := model.LoginLog{
 		UserID:    user.ID,
@@ -531,15 +600,14 @@ func (s *service) LoginAttempt(ctx context.Context, reqHandler dto.PayloadLoginT
 		UserAgent: reqHandler.UserAgent,
 	}
 
-	tx = database.BeginTx(ctx, factory.NewFactory().InitDB)
 	if err := tx.Error; err != nil {
-		return res, err
+		return res, nil, err
 	}
 
 	err = s.UserRepository.StoreLoginLog(tx, insertModel)
 	if err != nil {
 		tx.Rollback()
-		return res, fmt.Errorf("error storing login logs %s", err.Error())
+		return res, nil, fmt.Errorf("error storing login logs %s", err.Error())
 	}
 	tx.Commit()
 
@@ -552,5 +620,5 @@ func (s *service) LoginAttempt(ctx context.Context, reqHandler dto.PayloadLoginT
 		DataUser:  &dataUser,
 	}
 
-	return res, nil
+	return res, &refreshToken, nil
 }

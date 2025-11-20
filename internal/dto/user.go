@@ -13,7 +13,6 @@ type (
 		EmailVerifiedAt *time.Time            `form:"email_verified_at"`
 		Password        string                `form:"password" binding:"required"`
 		PhoneNumber     string                `form:"phone_number"`
-		RememberToken   string                `form:"remember_token"`
 		File            *multipart.FileHeader `form:"file"`
 		URL             string                `form:"url"`
 	}

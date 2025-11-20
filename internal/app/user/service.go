@@ -7,6 +7,7 @@ import (
 	"clean-arch/internal/model"
 	"clean-arch/internal/repository"
 	"clean-arch/pkg/consts"
+	"clean-arch/pkg/dbutil"
 	"clean-arch/pkg/util"
 	"context"
 	"fmt"
@@ -57,7 +58,7 @@ func (s *service) Store(ctx context.Context, reqHandler dto.PayloadUser) error {
 		insertModel.ProfileImageURL = reqHandler.URL
 	}
 
-	existingEmail, err := s.UserRepository.FindOne(ctx, "email", "email = ?", reqHandler.Email)
+	existingEmail, err := s.UserRepository.FindOne(ctx, "email", dbutil.Where("email = ?", reqHandler.Email))
 	if err != nil {
 		if err != gorm.ErrRecordNotFound {
 			tx.Rollback()
@@ -91,12 +92,12 @@ func (s *service) FindAll(ctx context.Context, reqHandler dto.PayloadBasicTable)
 		args = append(args, "%"+reqHandler.Search+"%")
 	}
 
-	count, err := s.UserRepository.Count(ctx, query, args...)
+	count, err := s.UserRepository.Count(ctx, dbutil.Where(query, args...))
 	if err != nil {
 		return nil, err
 	}
 
-	fetch, err := s.UserRepository.FindAll(ctx, "id, name, email, profile_image_url, email_verified_at, phone_number, created_at, updated_at", reqHandler.Limit, reqHandler.Offset, query, args...)
+	fetch, err := s.UserRepository.FindAll(ctx, "id, name, email, profile_image_url, email_verified_at, phone_number, created_at, updated_at", dbutil.Where(query, args...), dbutil.Limit(reqHandler.Limit), dbutil.Offset(reqHandler.Offset))
 	if err != nil {
 		return nil, err
 	}
@@ -135,7 +136,7 @@ func (s *service) FindAll(ctx context.Context, reqHandler dto.PayloadBasicTable)
 func (s *service) Update(ctx context.Context, id int, reqHandler dto.PayloadUpdateUser) error {
 	tx := database.BeginTx(ctx, factory.NewFactory().InitDB)
 
-	user, err := s.UserRepository.FindOne(ctx, "*", "id = ?", id)
+	user, err := s.UserRepository.FindOne(ctx, "*", dbutil.Where("id = ?", id))
 	if err != nil {
 		if err != gorm.ErrRecordNotFound {
 			return err
@@ -170,7 +171,7 @@ func (s *service) Update(ctx context.Context, id int, reqHandler dto.PayloadUpda
 			return fmt.Errorf("last password is required")
 		}
 
-		user, err := s.UserRepository.FindOne(ctx, "password", "id = ?", id)
+		user, err := s.UserRepository.FindOne(ctx, "password", dbutil.Where("id = ?", id))
 		if err != nil {
 			if err == gorm.ErrRecordNotFound {
 				return fmt.Errorf("user not found")
@@ -205,7 +206,7 @@ func (s *service) FindOne(ctx context.Context, id int) (dto.User, error) {
 		res dto.User
 	)
 
-	fetch, err := s.UserRepository.FindOne(ctx, "*", "id = ?", id)
+	fetch, err := s.UserRepository.FindOne(ctx, "*", dbutil.Where("id = ?", id))
 	if err != nil {
 		if err != gorm.ErrRecordNotFound {
 			return res, err
@@ -213,7 +214,7 @@ func (s *service) FindOne(ctx context.Context, id int) (dto.User, error) {
 	}
 
 	var emailVerifiedAt *string
-	if fetch.EmailVerifiedAt != nil { // Assuming EmailVerifiedAt is a *time.Time
+	if fetch.EmailVerifiedAt != nil {
 		formatted := fetch.EmailVerifiedAt.Format(consts.TimeFormatDateTime)
 		emailVerifiedAt = &formatted
 	}
@@ -234,7 +235,7 @@ func (s *service) FindOne(ctx context.Context, id int) (dto.User, error) {
 func (s *service) Delete(ctx context.Context, id int) error {
 	tx := database.BeginTx(ctx, factory.NewFactory().InitDB)
 
-	user, err := s.UserRepository.FindOne(ctx, "*", "id = ?", id)
+	user, err := s.UserRepository.FindOne(ctx, "*", dbutil.Where("id = ?", id))
 	if err != nil {
 		if err != gorm.ErrRecordNotFound {
 			return err

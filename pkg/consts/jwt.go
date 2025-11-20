@@ -10,6 +10,9 @@ const (
 	SessionActive  SessionStatus = 0
 	SessionRevoked SessionStatus = 1
 
-	TokenDurationRelease = time.Hour * 24 * 7
-	TokenDurationDev     = time.Hour * 24 * 30
+	TokenDurationRelease = time.Minute * 15
+	TokenDurationDev     = time.Minute * 60
+
+	RefreshTokenDurationRelease = 7
+	RefreshTokenDurationDev     = 30
 )

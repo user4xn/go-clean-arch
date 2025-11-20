@@ -1,6 +1,8 @@
 package config
 
 import (
+	"clean-arch/pkg/consts"
+	"clean-arch/pkg/util"
 	"log"
 
 	"github.com/joho/godotenv"
@@ -8,11 +10,18 @@ import (
 )
 
 func LoadEnv(path string) {
-	// Load .env file
 	if err := godotenv.Load(path); err != nil {
 		log.Println("No .env file found, using os environment variables")
 	}
 
-	// Set Viper to read from environment variables
 	viper.AutomaticEnv()
+}
+
+func GetRefreshDuration() int {
+	jwtMode := util.GetEnv("JWT_MODE", "fallback")
+	refreshDuration := consts.RefreshTokenDurationDev
+	if jwtMode == "release" {
+		refreshDuration = consts.RefreshTokenDurationRelease
+	}
+	return refreshDuration
 }

@@ -3,6 +3,7 @@ package repository
 import (
 	"clean-arch/internal/model"
 	"clean-arch/pkg/consts"
+	"clean-arch/pkg/dbutil"
 	"clean-arch/pkg/util"
 	"context"
 
@@ -10,19 +11,20 @@ import (
 )
 
 type User interface {
-	FindAll(ctx context.Context, selectedFields string, limit, offset int, query string, args ...interface{}) ([]*model.User, error)
-	FindOne(ctx context.Context, selectedFields string, query string, args ...any) (model.User, error)
+	FindAll(ctx context.Context, selectedFields string, otps ...dbutil.QueryOption) ([]*model.User, error)
+	FindOne(ctx context.Context, selectedFields string, otps ...dbutil.QueryOption) (model.User, error)
 	Store(db *gorm.DB, insertModel model.User) error
 	UpdateOne(db *gorm.DB, id int, data model.User) error
-	UpdateAll(db *gorm.DB, data model.User, selectedFields string, query string, args ...any) error
+	UpdateAll(db *gorm.DB, data model.User, selectedFields string, otps ...dbutil.QueryOption) error
 	DeleteOne(db *gorm.DB, id int) error
-	Count(ctx context.Context, query string, args ...any) (int, error)
+	Count(ctx context.Context, otps ...dbutil.QueryOption) (int, error)
 
-	FindSession(ctx context.Context, userId int, token string) (model.UserSession, error)
+	FindSession(ctx context.Context, token string) (model.UserSession, error)
 	CreateSession(db *gorm.DB, sessionData model.UserSession) error
-	FindLoginLog(ctx context.Context, query string, args ...any) (model.LoginLog, error)
+	FindLoginLog(ctx context.Context, otps ...dbutil.QueryOption) (model.LoginLog, error)
 	StoreLoginLog(db *gorm.DB, insertModel model.LoginLog) error
 	RevokeSession(db *gorm.DB, bearer string) error
+	UpdateSession(db *gorm.DB, id int, data model.UserSession) error
 }
 
 type user struct {
@@ -35,12 +37,19 @@ func NewUserRepository(db *gorm.DB) User {
 	}
 }
 
+func (r *user) UpdateSession(db *gorm.DB, id int, data model.UserSession) error {
+	if err := db.Model(&model.UserSession{}).Where("id = ?", id).Updates(data).Error; err != nil {
+		return err
+	}
+	return nil
+}
+
 func (r *user) RevokeSession(db *gorm.DB, bearer string) error {
 	modelUpdate := model.UserSession{
 		Revoked: 1,
 	}
 
-	err := db.Model(model.UserSession{}).Where("jwt_token = ?", bearer).Updates(modelUpdate).Error
+	err := db.Model(model.UserSession{}).Where("refresh_token_hash = ?", bearer).Updates(modelUpdate).Error
 	if err != nil {
 		return err
 	}
@@ -56,12 +65,12 @@ func (r *user) StoreLoginLog(db *gorm.DB, insertModel model.LoginLog) error {
 	return nil
 }
 
-func (r *user) FindLoginLog(ctx context.Context, query string, args ...any) (model.LoginLog, error) {
+func (r *user) FindLoginLog(ctx context.Context, opts ...dbutil.QueryOption) (model.LoginLog, error) {
 	var (
 		res model.LoginLog
 	)
 
-	err := r.Db.WithContext(ctx).Model(&model.LoginLog{}).Where(query, args...).Take(&res).Error
+	err := r.Db.WithContext(ctx).Model(&model.LoginLog{}).Scopes(dbutil.ApplyScopes(opts...)).Take(&res).Error
 	if err != nil {
 		return res, err
 	}
@@ -77,15 +86,11 @@ func (r *user) Store(db *gorm.DB, insertModel model.User) error {
 	return nil
 }
 
-func (r *user) FindAll(ctx context.Context, selectedFields string, limit, offset int, query string, args ...interface{}) ([]*model.User, error) {
+func (r *user) FindAll(ctx context.Context, selectedFields string, opts ...dbutil.QueryOption) ([]*model.User, error) {
 	var res []*model.User
 	db := r.Db.Model(&model.User{})
 	db = util.SetSelectFields(db, selectedFields)
-	db = db.Where(query, args...).Debug()
-
-	if limit > 0 {
-		db = db.Limit(limit).Offset(offset)
-	}
+	db = db.Scopes(dbutil.ApplyScopes(opts...)).Debug()
 
 	err := db.Find(&res).Error
 	if err != nil {
@@ -95,13 +100,13 @@ func (r *user) FindAll(ctx context.Context, selectedFields string, limit, offset
 	return res, nil
 }
 
-func (r *user) FindOne(ctx context.Context, selectedFields string, query string, args ...any) (model.User, error) {
+func (r *user) FindOne(ctx context.Context, selectedFields string, opts ...dbutil.QueryOption) (model.User, error) {
 	var res model.User
 
 	db := r.Db.WithContext(ctx).Model(model.User{})
 	db = util.SetSelectFields(db, selectedFields)
 
-	if err := db.Where(query, args...).Take(&res).Error; err != nil {
+	if err := db.Scopes(dbutil.ApplyScopes(opts...)).Take(&res).Error; err != nil {
 		return res, err
 	}
 
@@ -116,11 +121,11 @@ func (r *user) CreateSession(db *gorm.DB, sessionData model.UserSession) error {
 	return nil
 }
 
-func (r *user) FindSession(ctx context.Context, userId int, token string) (model.UserSession, error) {
+func (r *user) FindSession(ctx context.Context, token string) (model.UserSession, error) {
 	var res model.UserSession
 
 	db := r.Db.WithContext(ctx).Model(model.UserSession{})
-	if err := db.Where("user_id = ? AND jwt_token = ? AND revoked = ?", userId, token, consts.SessionActive).Take(&res).Error; err != nil {
+	if err := db.Where("refresh_token_hash = ? AND revoked = ?", token, consts.SessionActive).Take(&res).Error; err != nil {
 		return model.UserSession{}, err
 	}
 
@@ -134,19 +139,19 @@ func (r *user) UpdateOne(db *gorm.DB, id int, data model.User) error {
 	return nil
 }
 
-func (r *user) UpdateAll(db *gorm.DB, data model.User, selectedFields string, query string, args ...any) error {
-	if err := db.Model(&model.User{}).Select(selectedFields).Where(query, args).Debug().Updates(data).Error; err != nil {
+func (r *user) UpdateAll(db *gorm.DB, data model.User, selectedFields string, opts ...dbutil.QueryOption) error {
+	if err := db.Model(&model.User{}).Select(selectedFields).Scopes(dbutil.ApplyScopes(opts...)).Debug().Updates(data).Error; err != nil {
 		return err
 	}
 	return nil
 }
 
-func (r *user) Count(ctx context.Context, query string, args ...any) (int, error) {
+func (r *user) Count(ctx context.Context, opts ...dbutil.QueryOption) (int, error) {
 	var (
 		res int64
 	)
 
-	err := r.Db.WithContext(ctx).Model(model.User{}).Select("id").Where(query, args...).Count(&res).Error
+	err := r.Db.WithContext(ctx).Model(model.User{}).Select("id").Scopes(dbutil.ApplyScopes(opts...)).Count(&res).Error
 	if err != nil {
 		return 0, err
 	}

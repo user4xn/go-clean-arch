@@ -21,4 +21,5 @@ func (h *handler) Router(g *gin.RouterGroup) {
 	g.POST("request-otp", h.RequestOTP)
 	g.POST("verify-otp", h.VerifyOTP)
 	g.POST("logout", h.Logout)
+	g.POST("refresh", h.Refresh)
 }

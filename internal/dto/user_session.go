@@ -7,10 +7,11 @@ import (
 
 type (
 	UserSession struct {
-		UserID    int                  `json:"user_id"`
-		JWTToken  string               `json:"jwt_token"`
-		ExpiresAt string               `json:"expires_at"`
-		Revoked   consts.SessionStatus `json:"revoked"`
+		UserID           int                  `json:"user_id"`
+		IPAddress        string               `json:"ip_address"`
+		RefreshTokenHash string               `json:"refresh_token_hash"`
+		ExpiresAt        string               `json:"expires_at"`
+		Revoked          consts.SessionStatus `json:"revoked"`
 	}
 
 	JwtSession struct {
